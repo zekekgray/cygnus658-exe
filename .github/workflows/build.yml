@@ -1,0 +1,21 @@
+name: Build Cygnus Agent
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet restore CygnusAgent.sln
+      - run: dotnet publish src/CygnusAgent.Service -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          make_latest: true
+          files: ./publish/CygnusAgent.Service.exe
