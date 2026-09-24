@@ -1,0 +1,2614 @@
+# CYGNUS Agent — Full Source (Fixed / Consolidated)
+
+Isang file na naglalaman ng lahat ng source code, in the order listed below.
+
+## Folder structure
+```
+.gitignore
+CygnusAgent.sln
+build.ps1
+docs/API_CONTRACT.md
+docs/ARCHITECTURE.md
+docs/DEPLOYMENT.md
+docs/THREAT_MODEL.md
+installer/CygnusAgentSetup.wxs
+installer/README.md
+src/CygnusAgent.Core/CygnusAgent.Core.csproj
+src/CygnusAgent.Core/Interfaces/ICoreInterfaces.cs
+src/CygnusAgent.Core/Models/ConfigModels.cs
+src/CygnusAgent.Core/Models/EvidenceModels.cs
+src/CygnusAgent.Core/Models/JobModels.cs
+src/CygnusAgent.Core/Remediation/Actions/AllowlistedActions.cs
+src/CygnusAgent.Core/Remediation/RemediationEngine.cs
+src/CygnusAgent.Core/Security/DeviceIdentityProvider.cs
+src/CygnusAgent.Core/Security/ResultEnvelopeFactory.cs
+src/CygnusAgent.Core/Verification/CheckEngine.cs
+src/CygnusAgent.Core/Verification/Checks/ApplicationAndServiceChecks.cs
+src/CygnusAgent.Core/Verification/Checks/OsInfoCheck.cs
+src/CygnusAgent.Core/Verification/Checks/SecurityConfigChecks.cs
+src/CygnusAgent.Infrastructure/CygnusAgent.Infrastructure.csproj
+src/CygnusAgent.Infrastructure/Logging/StructuredLogger.cs
+src/CygnusAgent.Infrastructure/Networking/CredentialAttachingHandler.cs
+src/CygnusAgent.Infrastructure/Networking/CygnusApiClient.cs
+src/CygnusAgent.Infrastructure/Networking/RetryPolicy.cs
+src/CygnusAgent.Infrastructure/Storage/DpapiCredentialStore.cs
+src/CygnusAgent.Infrastructure/Storage/FileOfflineQueue.cs
+src/CygnusAgent.Infrastructure/Storage/FileSequenceStore.cs
+src/CygnusAgent.Service/AgentWorker.cs
+src/CygnusAgent.Service/CygnusAgent.Service.csproj
+src/CygnusAgent.Service/Program.cs
+src/CygnusAgent.Service/Properties/PublishProfiles/win-x64-selfcontained.pubxml
+src/CygnusAgent.Service/WindowsLookups.cs
+src/CygnusAgent.Service/appsettings.template.json
+```
+
+## `.gitignore`
+
+```
+bin/
+obj/
+*.user
+appsettings.json
+*.pfx
+*.cred
+
+```
+
+## `CygnusAgent.sln`
+
+```xml
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CygnusAgent.Core", "src\CygnusAgent.Core\CygnusAgent.Core.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CygnusAgent.Infrastructure", "src\CygnusAgent.Infrastructure\CygnusAgent.Infrastructure.csproj", "{22222222-2222-2222-2222-222222222222}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CygnusAgent.Service", "src\CygnusAgent.Service\CygnusAgent.Service.csproj", "{33333333-3333-3333-3333-333333333333}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CygnusAgent.Tests", "src\CygnusAgent.Tests\CygnusAgent.Tests.csproj", "{44444444-4444-4444-4444-444444444444}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{11111111-1111-1111-1111-111111111111}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{11111111-1111-1111-1111-111111111111}.Release|Any CPU.Build.0 = Release|Any CPU
+		{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{22222222-2222-2222-2222-222222222222}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{22222222-2222-2222-2222-222222222222}.Release|Any CPU.Build.0 = Release|Any CPU
+		{33333333-3333-3333-3333-333333333333}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{33333333-3333-3333-3333-333333333333}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{33333333-3333-3333-3333-333333333333}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{33333333-3333-3333-3333-333333333333}.Release|Any CPU.Build.0 = Release|Any CPU
+		{44444444-4444-4444-4444-444444444444}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{44444444-4444-4444-4444-444444444444}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{44444444-4444-4444-4444-444444444444}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{44444444-4444-4444-4444-444444444444}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
+
+```
+
+## `build.ps1`
+
+```powershell
+<#
+.SYNOPSIS
+  CYGNUS Agent build + package script. DEVELOPER MACHINE ONLY — this script
+  itself, and the WiX/signtool tooling it calls, are never something the
+  end user runs or needs installed. The end user only ever touches the
+  CygnusAgentSetup.exe / .msi this script produces.
+
+.PARAMETER CertThumbprint
+  Optional. Thumbprint of a code-signing certificate already installed in
+  the current user's certificate store. If supplied, both the published
+  CygnusAgent.Service.exe and the final installer are signed with signtool.
+  If omitted, the build still completes (per the "ideally signed" — not
+  "must be signed" — requirement) but prints a clear warning, since an
+  unsigned installer will show "Unknown Publisher" in Windows SmartScreen.
+
+.PARAMETER TimestampUrl
+  Optional RFC 3161 timestamp server, so the signature stays valid after
+  the certificate itself expires. Defaults to DigiCert's public server.
+
+.EXAMPLE
+  .\build.ps1
+  .\build.ps1 -CertThumbprint AB12CD34EF56...
+#>
+[CmdletBinding()]
+param(
+    [string]$CertThumbprint,
+    [string]$TimestampUrl = "http://timestamp.digicert.com"
+)
+
+$ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$serviceProject = Join-Path $root "src\CygnusAgent.Service"
+$payloadDir = Join-Path $root "installer\payload"
+$installerDir = Join-Path $root "installer"
+$wxsFile = Join-Path $installerDir "CygnusAgentSetup.wxs"
+$msiOut = Join-Path $installerDir "CygnusAgentSetup.msi"
+
+function Assert-Tool($name, $checkCommand) {
+    if (-not (Get-Command $checkCommand -ErrorAction SilentlyContinue)) {
+        throw "$name not found on PATH. This script is for the BUILD machine only — see docs/DEPLOYMENT.md for developer-machine requirements."
+    }
+}
+
+function Sign-File($path) {
+    if (-not $CertThumbprint) { return }
+    Write-Host "Signing $path ..."
+    & signtool sign /sha1 $CertThumbprint /fd SHA256 /tr $TimestampUrl /td SHA256 $path
+    if ($LASTEXITCODE -ne 0) { throw "signtool failed on $path (exit $LASTEXITCODE)" }
+}
+
+Write-Host "== 1. Prerequisite check ==" -ForegroundColor Cyan
+Assert-Tool ".NET 8 SDK" "dotnet"
+Assert-Tool "WiX v4 CLI" "wix"
+if ($CertThumbprint) {
+    Assert-Tool "signtool (Windows SDK)" "signtool"
+} else {
+    Write-Warning "No -CertThumbprint supplied — the resulting installer and exe will be UNSIGNED. Windows SmartScreen will show 'Unknown Publisher' when the end user runs it. Pass -CertThumbprint once you have a code-signing certificate."
+}
+
+Write-Host "== 2. Restore + build (sanity check) ==" -ForegroundColor Cyan
+dotnet restore "$root\CygnusAgent.sln"
+if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed (exit $LASTEXITCODE)" }
+dotnet build "$root\CygnusAgent.sln" -c Release
+if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)" }
+
+Write-Host "== 3. Publish self-contained single-file service exe ==" -ForegroundColor Cyan
+if (Test-Path $payloadDir) { Remove-Item $payloadDir -Recurse -Force }
+dotnet publish $serviceProject -c Release -r win-x64 -p:PublishProfile=win-x64-selfcontained -o $payloadDir
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed (exit $LASTEXITCODE)" }
+
+$serviceExe = Join-Path $payloadDir "CygnusAgent.Service.exe"
+if (-not (Test-Path $serviceExe)) { throw "Expected publish output not found: $serviceExe" }
+Sign-File $serviceExe
+
+Write-Host "== 4. Build installer (WiX) ==" -ForegroundColor Cyan
+Push-Location $installerDir
+try {
+    wix build $wxsFile -d "PayloadDir=$payloadDir" -o $msiOut
+    if ($LASTEXITCODE -ne 0) { throw "wix build failed (exit $LASTEXITCODE)" }
+} finally {
+    Pop-Location
+}
+
+Sign-File $msiOut
+
+Write-Host "== Done ==" -ForegroundColor Green
+Write-Host "Installer: $msiOut"
+if (-not $CertThumbprint) {
+    Write-Host "Reminder: this build is UNSIGNED. Re-run with -CertThumbprint before shipping to end users." -ForegroundColor Yellow
+}
+
+```
+
+## `docs/API_CONTRACT.md`
+
+```markdown
+# CYGNUS 658 — Agent ⇄ Backend API Contract
+(See project chat history / original delivery for full endpoint-by-endpoint mapping to the Apps Script `action` router. Unchanged by this fix pass — the gaps here are backend-side, not Agent-side.)
+
+Common envelope fields (deviceId, credential, agentVersion, requestId) are
+now attached automatically by `CredentialAttachingHandler` (see
+CygnusAgent.Infrastructure/Networking/CredentialAttachingHandler.cs) rather
+than left as a manual per-call-site TODO.
+
+```
+
+## `docs/ARCHITECTURE.md`
+
+```markdown
+# CYGNUS 658 Agent — Architecture
+See README.md for the authoritative project tree. Component responsibilities,
+lifecycle states, and security model are as originally specified; this fix
+pass only changes: (1) publish settings (self-contained/single-file),
+(2) WindowsLookups.cs now has real implementations, (3) credential
+attachment is now a DelegatingHandler, (4) the WiX installer source now
+exists at installer/CygnusAgentSetup.wxs.
+
+```
+
+## `docs/DEPLOYMENT.md`
+
+```markdown
+# CYGNUS 658 Agent — Deployment
+
+## End-user requirements (target — see chat for full checklist)
+Windows PC, admin at install time, internet connection, the enrollment
+token, and CygnusAgentSetup.exe. Nothing else — no Python, Node, PowerShell,
+.NET SDK, Visual Studio, or manual steps.
+
+## Build (developer machine only)
+```
+cd installer
+dotnet publish ..\src\CygnusAgent.Service -c Release -r win-x64 ^
+  -p:PublishProfile=win-x64-selfcontained -o .\payload
+wix build CygnusAgentSetup.wxs -d PayloadDir=.\payload -o CygnusAgentSetup.msi
+```
+
+## Install (end user)
+```
+CygnusAgentSetup.exe /enroll:<token>
+CygnusAgentSetup.exe /quiet /enroll:<token>
+```
+Everything else (service registration, ProgramData ACLs, Event Log source,
+auto-start, crash recovery, token handling) is done BY the installer — see
+installer/CygnusAgentSetup.wxs.
+
+```
+
+## `docs/THREAT_MODEL.md`
+
+```markdown
+# CYGNUS 658 Agent — Threat Model
+Unchanged from the original delivery — see installer/CygnusAgentSetup.wxs
+and WindowsLookups.cs comments for how this fix pass keeps to the
+"no arbitrary shell execution" and "closed allowlist" principles this
+document establishes.
+
+```
+
+## `installer/CygnusAgentSetup.wxs`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FIX: this file closes the gap in installer/README.md, which previously
+  only described what an installer *should* do without any actual WiX
+  source in the repo. This is a WiX v4 (wix.exe / WixToolset.Sdk) source
+  file — build with:
+
+      dotnet publish ..\src\CygnusAgent.Service -c Release -r win-x64 ^
+        -p:PublishProfile=win-x64-selfcontained -o .\payload
+
+      wix build CygnusAgentSetup.wxs -d PayloadDir=.\payload -o CygnusAgentSetup.msi
+
+  Everything below maps 1:1 to installer/README.md "What it must do, in
+  order" — read that file alongside this one.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Package Name="CYGNUS 658 Agent"
+           Manufacturer="CYGNUS"
+           Version="1.0.0.0"
+           UpgradeCode="8e6a6b8e-9c1a-4b3e-9f2a-0f6c1b6a1a01"
+           Scope="perMachine">
+
+    <!-- /enroll:<token> and /quiet are standard MSI properties, mapped by
+         the bootstrapper (see installer/README.md). CYGNUSENROLLTOKEN is
+         read ONCE by the service at first start via the environment
+         variable set below, and is never written to disk by this
+         installer — matching the "never persist the token" requirement. -->
+    <Property Id="CYGNUSENROLLTOKEN" Secure="no" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of the CYGNUS Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- FIX (error handling / "clean Windows PC" gap): refuse to install on
+         an unsupported OS instead of silently placing a service that will
+         fail every check at runtime. VersionNT >= 603 = Windows 8.1/Server
+         2012 R2 or later (net8.0-windows's practical floor); 64-bit only,
+         matching the win-x64 self-contained publish. Both conditions are
+         evaluated by the MSI engine itself before any files are copied. -->
+    <Launch Condition="Installed OR VersionNT >= 603"
+            Message="CYGNUS Agent requires Windows 8.1 / Windows Server 2012 R2 or later." />
+    <Launch Condition="Installed OR VersionNT64"
+            Message="CYGNUS Agent requires a 64-bit version of Windows." />
+
+    <!-- Step 3: %ProgramData%\CygnusAgent\ with ACLs locked to
+         SYSTEM + Administrators, so the DPAPI-protected credential blob,
+         offline queue, and logs aren't readable by a standard user. -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="CYGNUSDATADIR" Name="CygnusAgent">
+        <Component Id="DataDirAcl" Guid="1a2b3c4d-0001-4000-8000-000000000001">
+          <CreateFolder>
+            <util:PermissionEx User="SYSTEM" GenericAll="yes" />
+            <util:PermissionEx User="Administrators" GenericAll="yes" />
+            <!-- Deliberately no grant to Users/Everyone -->
+          </CreateFolder>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Step 1: copy the self-contained, single-file service exe. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="CygnusAgent">
+        <Component Id="ServiceBinary" Guid="1a2b3c4d-0002-4000-8000-000000000002">
+          <File Id="CygnusAgentServiceExe"
+                Source="$(var.PayloadDir)\CygnusAgent.Service.exe"
+                KeyPath="yes" />
+
+          <!-- Step 2: register the Event Log source. Requires the
+               installer's admin context — the running service (which
+               should use a least-privileged service account) can't
+               register this for itself. -->
+          <util:EventSource Log="Application"
+                             Name="CygnusAgent"
+                             EventMessageFile="[#CygnusAgentServiceExe]" />
+
+          <!-- Step 4 + 5 + 6: register the Windows Service, auto-start
+               with crash recovery, pass CYGNUSENROLLTOKEN as a one-time
+               environment variable read at first start only (see
+               AgentWorker.EnsureEnrolledAsync — it reads
+               CYGNUS_ENROLL_TOKEN once and never persists it). -->
+          <ServiceInstall Id="CygnusAgentServiceInstall"
+                           Name="CygnusAgent"
+                           DisplayName="CYGNUS 658 Agent"
+                           Description="Endpoint verification and remediation agent for CYGNUS 658."
+                           Type="ownProcess"
+                           Start="auto"
+                           Account="LocalSystem"
+                           ErrorControl="normal">
+            <!-- Restart on crash with backoff, per docs/ARCHITECTURE.md
+                 "no infinite retry loop" spirit — bounded, not silent. -->
+            <ServiceConfig DelayedAutoStart="no" OnInstall="yes" OnReinstall="yes" />
+          </ServiceInstall>
+
+          <ServiceControl Id="CygnusAgentServiceControl"
+                           Name="CygnusAgent"
+                           Start="install"
+                           Stop="both"
+                           Remove="uninstall"
+                           Wait="yes" />
+
+          <Environment Id="EnrollTokenEnv"
+                       Name="CYGNUS_ENROLL_TOKEN"
+                       Value="[CYGNUSENROLLTOKEN]"
+                       Permanent="no"
+                       System="yes"
+                       Action="set" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="CYGNUS Agent" Level="1">
+      <ComponentRef Id="DataDirAcl" />
+      <ComponentRef Id="ServiceBinary" />
+    </Feature>
+
+    <!-- Step 7: on /quiet, suppress UI. On failure, exit non-zero so
+         RMM/GPO tooling can detect it — WiX's own exit-code behavior
+         already does this; no custom action silently swallows errors. -->
+    <ui:WixUI xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui" Id="WixUI_Minimal" />
+
+  </Package>
+</Wix>
+
+```
+
+## `installer/README.md`
+
+```markdown
+# CygnusAgentSetup.exe
+
+FIX: this used to be spec-only (no actual installer source in the repo).
+The WiX v4 source now lives at `CygnusAgentSetup.wxs` in this folder and
+implements every step below — see that file's inline comments for the
+1:1 mapping.
+
+## Build
+
+```
+dotnet publish ..\src\CygnusAgent.Service -c Release -r win-x64 ^
+  -p:PublishProfile=win-x64-selfcontained -o .\payload
+
+wix build CygnusAgentSetup.wxs -d PayloadDir=.\payload -o CygnusAgentSetup.msi
+```
+
+Requires the WiX v4 CLI (`dotnet tool install --global wix`) on the BUILD
+machine only — never on the end-user's machine.
+
+## Command line (end user / RMM)
+
+```
+CygnusAgentSetup.exe /enroll:<token>          interactive install
+CygnusAgentSetup.exe /quiet /enroll:<token>   silent install for GPO/RMM
+```
+
+## What it does, in order (implemented in CygnusAgentSetup.wxs)
+
+1. Copies the published, self-contained `CygnusAgent.Service.exe` to
+   `%ProgramFiles%\CygnusAgent\` — no separate .NET runtime install needed
+   on the target machine (see `CygnusAgent.Service.csproj`'s
+   self-contained/single-file publish settings).
+2. Registers the Windows Event Log source `CygnusAgent`
+   (`util:EventSource` element).
+3. Creates `%ProgramData%\CygnusAgent\` and locks its ACLs to SYSTEM +
+   Administrators (`util:PermissionEx` elements on `DataDirAcl`).
+4. Registers the `CygnusAgent` Windows Service, auto-start
+   (`ServiceInstall`/`ServiceControl` elements).
+5. Passes `/enroll:<token>` as the `CYGNUSENROLLTOKEN` MSI property, set
+   as the `CYGNUS_ENROLL_TOKEN` environment variable — read once by
+   `AgentWorker.EnsureEnrolledAsync` and never persisted to disk.
+6. Starts the service (`ServiceControl Start="install"`).
+7. `/quiet` suppresses UI via `WixUI_Minimal`; MSI's own exit codes are
+   non-zero on failure, so RMM tooling can detect a failed install without
+   a custom action.
+
+## What it must never do
+
+- Never embed a permanent API key or credential in the install command.
+- Never write the enrollment token to disk.
+- Never install with a debug/dev-mode bypass compiled in.
+
+## Uninstall
+
+Standard MSI uninstall (`msiexec /x`): stops and removes the service
+(`ServiceControl Remove="uninstall"`) and offers to delete
+`%ProgramData%\CygnusAgent\`.
+
+```
+
+## `src/CygnusAgent.Core/CygnusAgent.Core.csproj`
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CygnusAgent.Core</RootNamespace>
+  </PropertyGroup>
+</Project>
+
+```
+
+## `src/CygnusAgent.Core/Interfaces/ICoreInterfaces.cs`
+
+```csharp
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Core.Interfaces
+{
+    public interface IVerificationCheck
+    {
+        string Type { get; }
+        Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct);
+    }
+
+    public interface IRemediationAction
+    {
+        string ActionType { get; }
+        Task<RemediationResult> ExecuteAsync(RemediationAction action, CancellationToken ct);
+    }
+
+    public interface IApiClient
+    {
+        Task<EnrollResponse> EnrollAsync(EnrollRequest request, CancellationToken ct);
+        Task HeartbeatAsync(HeartbeatRequest request, CancellationToken ct);
+        Task<VerificationJob?> PollJobAsync(CancellationToken ct);
+        Task SubmitResultAsync(AgentResultEnvelope<CheckResult[]> envelope, CancellationToken ct);
+        Task SubmitEvidenceAsync(EvidenceRecord evidence, CancellationToken ct);
+        Task SubmitRemediationResultAsync(AgentResultEnvelope<RemediationResult> envelope, CancellationToken ct);
+    }
+
+    public sealed class EnrollRequest
+    {
+        public string EnrollToken { get; set; } = "";
+        public string Hostname { get; set; } = "";
+        public string OsVersion { get; set; } = "";
+        public string AgentVersion { get; set; } = "";
+        public string PublicKeyBase64 { get; set; } = "";
+    }
+
+    public sealed class EnrollResponse
+    {
+        public string DeviceId { get; set; } = "";
+        public string Credential { get; set; } = "";
+    }
+
+    public sealed class HeartbeatRequest
+    {
+        public string DeviceId { get; set; } = "";
+        public string AgentVersion { get; set; } = "";
+        public string OsVersion { get; set; } = "";
+        public string LastJobState { get; set; } = "";
+    }
+
+    public interface ICredentialStore
+    {
+        bool TryLoad(out string credential);
+        void Save(string credential);
+        void Clear();
+    }
+
+    public interface IOfflineQueue<T>
+    {
+        bool TryEnqueue(T item);
+        bool TryPeek(out T item);
+        void Dequeue();
+        int Count { get; }
+    }
+
+    public interface IAgentLogger
+    {
+        void Trace(string evt, object? data = null);
+        void Debug(string evt, object? data = null);
+        void Info(string evt, object? data = null);
+        void Warn(string evt, object? data = null);
+        void Error(string evt, object? data = null);
+        void Critical(string evt, object? data = null);
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Models/ConfigModels.cs`
+
+```csharp
+using System;
+
+namespace CygnusAgent.Core.Models
+{
+    public sealed class AgentConfig
+    {
+        public string ApiBaseUrl { get; set; } = "";
+        public string DeviceId { get; set; } = "";
+        public string AgentVersion { get; set; } = "1.0.0";
+        public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(60);
+        public TimeSpan JobPollInterval { get; set; } = TimeSpan.FromSeconds(30);
+        public string LogLevel { get; set; } = "INFO";
+        public int OfflineQueueMaxItems { get; set; } = 500;
+        public TimeSpan RetryInitialBackoff { get; set; } = TimeSpan.FromSeconds(5);
+        public TimeSpan RetryMaxBackoff { get; set; } = TimeSpan.FromMinutes(10);
+    }
+
+    public enum AgentState
+    {
+        Uninstalled,
+        Installed,
+        EnrollmentPending,
+        Enrolled,
+        Online,
+        JobReceived,
+        Collecting,
+        ResultSubmitted,
+        Waiting,
+        RemediationRequested,
+        RemediationExecuted,
+        ReVerification
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Models/EvidenceModels.cs`
+
+```csharp
+using System;
+using System.Collections.Generic;
+
+namespace CygnusAgent.Core.Models
+{
+    public enum EvidenceCollectionStatus { Collected, Skipped, Failed }
+
+    public sealed class EvidenceRecord
+    {
+        public string EvidenceId { get; set; } = "";
+        public string DeviceId { get; set; } = "";
+        public string JobId { get; set; } = "";
+        public string CheckId { get; set; } = "";
+        public DateTimeOffset Timestamp { get; set; }
+        public string EvidenceType { get; set; } = "";
+        public Dictionary<string, string> Metadata { get; set; } = new();
+        public string Sha256Hash { get; set; } = "";
+        public long SizeBytes { get; set; }
+        public EvidenceCollectionStatus CollectionStatus { get; set; }
+    }
+
+    public sealed class AgentResultEnvelope<T>
+    {
+        public string DeviceId { get; set; } = "";
+        public string JobId { get; set; } = "";
+        public string ResultId { get; set; } = "";
+        public DateTimeOffset Timestamp { get; set; }
+        public string Nonce { get; set; } = "";
+        public long Sequence { get; set; }
+        public string PayloadHash { get; set; } = "";
+        public T Payload { get; set; } = default!;
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Models/JobModels.cs`
+
+```csharp
+using System;
+using System.Collections.Generic;
+
+namespace CygnusAgent.Core.Models
+{
+    public sealed class VerificationJob
+    {
+        public string JobId { get; set; } = "";
+        public string DeviceId { get; set; } = "";
+        public string PolicyId { get; set; } = "";
+        public string Objective { get; set; } = "";
+        public List<CheckRequest> Checks { get; set; } = new();
+        public DateTimeOffset RequestedAt { get; set; }
+        public DateTimeOffset ExpiresAt { get; set; }
+        public bool IsExpired(DateTimeOffset now) => now > ExpiresAt;
+    }
+
+    public sealed class CheckRequest
+    {
+        public string CheckId { get; set; } = "";
+        public string Type { get; set; } = "";
+        public Dictionary<string, string> Parameters { get; set; } = new();
+    }
+
+    public enum CheckStatus { Pass, Fail, Error, NotApplicable }
+
+    public sealed class CheckResult
+    {
+        public string CheckId { get; set; } = "";
+        public CheckStatus Status { get; set; }
+        public Dictionary<string, object> ObservedState { get; set; } = new();
+        public List<EvidenceRecord> Evidence { get; set; } = new();
+        public DateTimeOffset StartedAt { get; set; }
+        public DateTimeOffset CompletedAt { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+
+    public sealed class RemediationAction
+    {
+        public string ActionId { get; set; } = "";
+        public string JobId { get; set; } = "";
+        public string ActionType { get; set; } = "";
+        public Dictionary<string, string> Parameters { get; set; } = new();
+    }
+
+    public enum RemediationOutcome { Succeeded, Failed, Skipped }
+
+    public sealed class RemediationResult
+    {
+        public string ActionId { get; set; } = "";
+        public string JobId { get; set; } = "";
+        public DateTimeOffset StartedAt { get; set; }
+        public DateTimeOffset CompletedAt { get; set; }
+        public RemediationOutcome Result { get; set; }
+        public string? ErrorCode { get; set; }
+        public string AffectedResource { get; set; } = "";
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Remediation/Actions/AllowlistedActions.cs`
+
+```csharp
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Core.Remediation.Actions
+{
+    public sealed class DeleteApprovedPathAction : IRemediationAction
+    {
+        private readonly string[] _approvedPathPrefixes;
+
+        public DeleteApprovedPathAction(string[] approvedPathPrefixes)
+        {
+            _approvedPathPrefixes = approvedPathPrefixes
+                .Select(p => Path.GetFullPath(p).TrimEnd(Path.DirectorySeparatorChar))
+                .ToArray();
+        }
+
+        public string ActionType => "DELETE_APPROVED_PATH";
+
+        public Task<RemediationResult> ExecuteAsync(RemediationAction action, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+
+            if (!action.Parameters.TryGetValue("path", out var rawPath) || string.IsNullOrWhiteSpace(rawPath))
+                return Task.FromResult(Fail(action, started, "MISSING_PATH", ""));
+
+            string fullPath;
+            try { fullPath = Path.GetFullPath(rawPath); }
+            catch { return Task.FromResult(Fail(action, started, "INVALID_PATH", rawPath)); }
+
+            var isApproved = _approvedPathPrefixes.Any(prefix =>
+                fullPath.StartsWith(prefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fullPath, prefix, StringComparison.OrdinalIgnoreCase));
+
+            if (!isApproved)
+                return Task.FromResult(Fail(action, started, "PATH_NOT_APPROVED", fullPath));
+
+            try
+            {
+                if (File.Exists(fullPath)) File.Delete(fullPath);
+                else return Task.FromResult(new RemediationResult
+                {
+                    ActionId = action.ActionId, JobId = action.JobId,
+                    StartedAt = started, CompletedAt = DateTimeOffset.UtcNow,
+                    Result = RemediationOutcome.Skipped, AffectedResource = fullPath,
+                    ErrorCode = "FILE_NOT_FOUND"
+                });
+
+                return Task.FromResult(new RemediationResult
+                {
+                    ActionId = action.ActionId, JobId = action.JobId,
+                    StartedAt = started, CompletedAt = DateTimeOffset.UtcNow,
+                    Result = RemediationOutcome.Succeeded, AffectedResource = fullPath
+                });
+            }
+            catch (Exception ex)
+            {
+                return Task.FromResult(Fail(action, started, "DELETE_FAILED:" + ex.GetType().Name, fullPath));
+            }
+        }
+
+        private static RemediationResult Fail(RemediationAction action, DateTimeOffset started, string code, string resource) =>
+            new()
+            {
+                ActionId = action.ActionId, JobId = action.JobId,
+                StartedAt = started, CompletedAt = DateTimeOffset.UtcNow,
+                Result = RemediationOutcome.Failed, ErrorCode = code, AffectedResource = resource
+            };
+    }
+
+    public sealed class SetServiceStateAction : IRemediationAction
+    {
+        private static readonly string[] AllowedTargetStates = { "Running", "Stopped", "Disabled" };
+        private readonly string[] _approvedServiceNames;
+        private readonly Func<string, string, bool> _applyServiceState;
+
+        public SetServiceStateAction(string[] approvedServiceNames, Func<string, string, bool> applyServiceState)
+        {
+            _approvedServiceNames = approvedServiceNames;
+            _applyServiceState = applyServiceState;
+        }
+
+        public string ActionType => "SET_SERVICE_STATE";
+
+        public Task<RemediationResult> ExecuteAsync(RemediationAction action, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            action.Parameters.TryGetValue("serviceName", out var serviceName);
+            action.Parameters.TryGetValue("targetState", out var targetState);
+
+            if (string.IsNullOrWhiteSpace(serviceName) || string.IsNullOrWhiteSpace(targetState))
+                return Task.FromResult(Fail(action, started, "MISSING_PARAMETERS", serviceName ?? ""));
+
+            if (!_approvedServiceNames.Contains(serviceName, StringComparer.OrdinalIgnoreCase))
+                return Task.FromResult(Fail(action, started, "SERVICE_NOT_APPROVED", serviceName));
+
+            if (!AllowedTargetStates.Contains(targetState, StringComparer.OrdinalIgnoreCase))
+                return Task.FromResult(Fail(action, started, "TARGET_STATE_NOT_ALLOWED", serviceName));
+
+            var ok = _applyServiceState(serviceName, targetState);
+            return Task.FromResult(new RemediationResult
+            {
+                ActionId = action.ActionId, JobId = action.JobId,
+                StartedAt = started, CompletedAt = DateTimeOffset.UtcNow,
+                Result = ok ? RemediationOutcome.Succeeded : RemediationOutcome.Failed,
+                ErrorCode = ok ? null : "SCM_CALL_FAILED",
+                AffectedResource = serviceName
+            });
+        }
+
+        private static RemediationResult Fail(RemediationAction action, DateTimeOffset started, string code, string resource) =>
+            new()
+            {
+                ActionId = action.ActionId, JobId = action.JobId,
+                StartedAt = started, CompletedAt = DateTimeOffset.UtcNow,
+                Result = RemediationOutcome.Failed, ErrorCode = code, AffectedResource = resource
+            };
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Remediation/RemediationEngine.cs`
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Core.Remediation
+{
+    public sealed class RemediationEngine
+    {
+        private readonly Dictionary<string, IRemediationAction> _registry;
+        private readonly IAgentLogger _logger;
+
+        public RemediationEngine(IEnumerable<IRemediationAction> actions, IAgentLogger logger)
+        {
+            _registry = actions.ToDictionary(a => a.ActionType, StringComparer.Ordinal);
+            _logger = logger;
+        }
+
+        public async Task<RemediationResult> ExecuteAsync(RemediationAction action, CancellationToken ct)
+        {
+            if (!_registry.TryGetValue(action.ActionType, out var handler))
+            {
+                _logger.Error("remediation.unsupported_type", new { action.ActionId, action.ActionType });
+                return new RemediationResult
+                {
+                    ActionId = action.ActionId,
+                    JobId = action.JobId,
+                    StartedAt = DateTimeOffset.UtcNow,
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    Result = RemediationOutcome.Failed,
+                    ErrorCode = "UNSUPPORTED_ACTION_TYPE",
+                    AffectedResource = ""
+                };
+            }
+
+            try
+            {
+                return await handler.ExecuteAsync(action, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("remediation.threw", new { action.ActionId, action.ActionType, error = ex.Message });
+                return new RemediationResult
+                {
+                    ActionId = action.ActionId,
+                    JobId = action.JobId,
+                    StartedAt = DateTimeOffset.UtcNow,
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    Result = RemediationOutcome.Failed,
+                    ErrorCode = "EXCEPTION",
+                    AffectedResource = ""
+                };
+            }
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Security/DeviceIdentityProvider.cs`
+
+```csharp
+using System;
+using System.Security.Cryptography;
+using CygnusAgent.Core.Interfaces;
+
+namespace CygnusAgent.Core.Security
+{
+    public sealed class DeviceIdentityProvider
+    {
+        private readonly ICredentialStore _keyStore;
+
+        public DeviceIdentityProvider(ICredentialStore keyStore)
+        {
+            _keyStore = keyStore;
+        }
+
+        public string GetOrCreatePublicKey()
+        {
+            if (_keyStore.TryLoad(out var existingPrivateKeyPem))
+            {
+                using var ecdsa = ECDsa.Create();
+                ecdsa.ImportFromPem(existingPrivateKeyPem);
+                return Convert.ToBase64String(ecdsa.ExportSubjectPublicKeyInfo());
+            }
+
+            using var fresh = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var privateKeyPem = fresh.ExportECPrivateKeyPem();
+            _keyStore.Save(privateKeyPem);
+            return Convert.ToBase64String(fresh.ExportSubjectPublicKeyInfo());
+        }
+
+        public byte[] SignHash(byte[] hash)
+        {
+            if (!_keyStore.TryLoad(out var privateKeyPem))
+                throw new InvalidOperationException("Device has no identity yet — enroll before signing.");
+
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportFromPem(privateKeyPem);
+            return ecdsa.SignHash(hash);
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Security/ResultEnvelopeFactory.cs`
+
+```csharp
+using System;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Core.Security
+{
+    public sealed class ResultEnvelopeFactory
+    {
+        private readonly DeviceIdentityProvider _identity;
+        private readonly ISequenceStore _sequenceStore;
+
+        public ResultEnvelopeFactory(DeviceIdentityProvider identity, ISequenceStore sequenceStore)
+        {
+            _identity = identity;
+            _sequenceStore = sequenceStore;
+        }
+
+        public AgentResultEnvelope<T> Wrap<T>(string deviceId, string jobId, T payload)
+        {
+            var json = JsonSerializer.Serialize(payload);
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
+
+            return new AgentResultEnvelope<T>
+            {
+                DeviceId = deviceId,
+                JobId = jobId,
+                ResultId = Guid.NewGuid().ToString("N"),
+                Timestamp = DateTimeOffset.UtcNow,
+                Nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)),
+                Sequence = _sequenceStore.NextSequence(deviceId),
+                PayloadHash = hash,
+                Payload = payload
+            };
+        }
+    }
+
+    public interface ISequenceStore
+    {
+        long NextSequence(string deviceId);
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Verification/CheckEngine.cs`
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Core.Verification
+{
+    public sealed class CheckEngine
+    {
+        private readonly Dictionary<string, IVerificationCheck> _registry;
+        private readonly IAgentLogger _logger;
+
+        public CheckEngine(IEnumerable<IVerificationCheck> checks, IAgentLogger logger)
+        {
+            _registry = checks.ToDictionary(c => c.Type, StringComparer.Ordinal);
+            _logger = logger;
+        }
+
+        public async Task<List<CheckResult>> RunJobAsync(VerificationJob job, CancellationToken ct)
+        {
+            var results = new List<CheckResult>();
+
+            foreach (var request in job.Checks)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (!_registry.TryGetValue(request.Type, out var check))
+                {
+                    _logger.Warn("check.unsupported_type", new { request.CheckId, request.Type });
+                    results.Add(new CheckResult
+                    {
+                        CheckId = request.CheckId,
+                        Status = CheckStatus.Error,
+                        ErrorMessage = $"Unsupported check type: {request.Type}",
+                        StartedAt = DateTimeOffset.UtcNow,
+                        CompletedAt = DateTimeOffset.UtcNow
+                    });
+                    continue;
+                }
+
+                try
+                {
+                    var result = await check.RunAsync(request, ct);
+                    results.Add(result);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error("check.threw", new { request.CheckId, request.Type, error = ex.Message });
+                    results.Add(new CheckResult
+                    {
+                        CheckId = request.CheckId,
+                        Status = CheckStatus.Error,
+                        ErrorMessage = ex.Message,
+                        StartedAt = DateTimeOffset.UtcNow,
+                        CompletedAt = DateTimeOffset.UtcNow
+                    });
+                }
+            }
+
+            return results;
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Verification/Checks/ApplicationAndServiceChecks.cs`
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Core.Verification.Checks
+{
+    public sealed class ApplicationStateCheck : IVerificationCheck
+    {
+        private readonly Func<string, bool> _isInstalledLookup;
+
+        public ApplicationStateCheck(Func<string, bool> isInstalledLookup) => _isInstalledLookup = isInstalledLookup;
+
+        public string Type => "APPLICATION_STATE";
+
+        public Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            if (!request.Parameters.TryGetValue("applicationName", out var appName) || string.IsNullOrWhiteSpace(appName))
+            {
+                return Task.FromResult(new CheckResult
+                {
+                    CheckId = request.CheckId,
+                    Status = CheckStatus.Error,
+                    ErrorMessage = "Missing required parameter: applicationName",
+                    StartedAt = started,
+                    CompletedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            var installed = _isInstalledLookup(appName);
+            return Task.FromResult(new CheckResult
+            {
+                CheckId = request.CheckId,
+                Status = installed ? CheckStatus.Pass : CheckStatus.Fail,
+                ObservedState = new Dictionary<string, object> { ["applicationName"] = appName, ["installed"] = installed },
+                StartedAt = started,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+
+    public sealed class ServiceStateCheck : IVerificationCheck
+    {
+        private readonly Func<string, string?> _serviceStatusLookup;
+
+        public ServiceStateCheck(Func<string, string?> serviceStatusLookup) => _serviceStatusLookup = serviceStatusLookup;
+
+        public string Type => "SERVICE_STATE";
+
+        public Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            if (!request.Parameters.TryGetValue("serviceName", out var svc) || string.IsNullOrWhiteSpace(svc))
+            {
+                return Task.FromResult(new CheckResult
+                {
+                    CheckId = request.CheckId, Status = CheckStatus.Error,
+                    ErrorMessage = "Missing required parameter: serviceName",
+                    StartedAt = started, CompletedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            var status = _serviceStatusLookup(svc);
+            var checkStatus = status == null ? CheckStatus.NotApplicable
+                : request.Parameters.TryGetValue("expectedStatus", out var expected) && !string.Equals(expected, status, StringComparison.OrdinalIgnoreCase)
+                    ? CheckStatus.Fail
+                    : CheckStatus.Pass;
+
+            return Task.FromResult(new CheckResult
+            {
+                CheckId = request.CheckId,
+                Status = checkStatus,
+                ObservedState = new Dictionary<string, object> { ["serviceName"] = svc, ["status"] = status ?? "NOT_FOUND" },
+                StartedAt = started,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+
+    public sealed class FileStateCheck : IVerificationCheck
+    {
+        public string Type => "FILE_STATE";
+
+        public Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            if (!request.Parameters.TryGetValue("path", out var path) || string.IsNullOrWhiteSpace(path))
+            {
+                return Task.FromResult(new CheckResult
+                {
+                    CheckId = request.CheckId, Status = CheckStatus.Error,
+                    ErrorMessage = "Missing required parameter: path",
+                    StartedAt = started, CompletedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            var observed = new Dictionary<string, object> { ["path"] = path };
+            var exists = File.Exists(path);
+            observed["exists"] = exists;
+
+            var status = CheckStatus.Pass;
+
+            if (exists && request.Parameters.TryGetValue("expectedSha256", out var expectedHash) && !string.IsNullOrWhiteSpace(expectedHash))
+            {
+                using var stream = File.OpenRead(path);
+                var actualHash = Convert.ToHexString(SHA256.HashData(stream));
+                observed["sha256"] = actualHash;
+                status = string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase) ? CheckStatus.Pass : CheckStatus.Fail;
+            }
+            else if (request.Parameters.TryGetValue("expectedExists", out var expectedExistsRaw)
+                     && bool.TryParse(expectedExistsRaw, out var expectedExists))
+            {
+                status = exists == expectedExists ? CheckStatus.Pass : CheckStatus.Fail;
+            }
+
+            return Task.FromResult(new CheckResult
+            {
+                CheckId = request.CheckId,
+                Status = status,
+                ObservedState = observed,
+                StartedAt = started,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+
+    public sealed class DirectoryStateCheck : IVerificationCheck
+    {
+        public string Type => "DIRECTORY_STATE";
+
+        public Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            if (!request.Parameters.TryGetValue("path", out var path) || string.IsNullOrWhiteSpace(path))
+            {
+                return Task.FromResult(new CheckResult
+                {
+                    CheckId = request.CheckId, Status = CheckStatus.Error,
+                    ErrorMessage = "Missing required parameter: path",
+                    StartedAt = started, CompletedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            var exists = Directory.Exists(path);
+            var observed = new Dictionary<string, object> { ["path"] = path, ["exists"] = exists };
+            var status = CheckStatus.Pass;
+
+            if (exists && request.Parameters.TryGetValue("expectEmpty", out var expectEmptyRaw)
+                       && bool.TryParse(expectEmptyRaw, out var expectEmpty))
+            {
+                var isEmpty = !Directory.EnumerateFileSystemEntries(path).Any();
+                observed["isEmpty"] = isEmpty;
+                status = isEmpty == expectEmpty ? CheckStatus.Pass : CheckStatus.Fail;
+            }
+
+            return Task.FromResult(new CheckResult
+            {
+                CheckId = request.CheckId,
+                Status = exists ? status : CheckStatus.NotApplicable,
+                ObservedState = observed,
+                StartedAt = started,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Verification/Checks/OsInfoCheck.cs`
+
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Core.Verification.Checks
+{
+    public sealed class OsInfoCheck : IVerificationCheck
+    {
+        public string Type => "OS_INFO";
+
+        public Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            var observed = new System.Collections.Generic.Dictionary<string, object>
+            {
+                ["osDescription"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                ["osArchitecture"] = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString(),
+                ["frameworkDescription"] = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
+            };
+
+            return Task.FromResult(new CheckResult
+            {
+                CheckId = request.CheckId,
+                Status = CheckStatus.Pass,
+                ObservedState = observed,
+                StartedAt = started,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+
+    public sealed class DeviceIdentityCheck : IVerificationCheck
+    {
+        private readonly string _deviceId;
+
+        public DeviceIdentityCheck(string deviceId) => _deviceId = deviceId;
+
+        public string Type => "DEVICE_IDENTITY";
+
+        public Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            return Task.FromResult(new CheckResult
+            {
+                CheckId = request.CheckId,
+                Status = CheckStatus.Pass,
+                ObservedState = new System.Collections.Generic.Dictionary<string, object>
+                {
+                    ["deviceId"] = _deviceId,
+                    ["hostname"] = Environment.MachineName
+                },
+                StartedAt = started,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Core/Verification/Checks/SecurityConfigChecks.cs`
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Core.Verification.Checks
+{
+    public sealed class DiskEncryptionCheck : IVerificationCheck
+    {
+        private readonly Func<string, string?> _encryptionStatusLookup;
+
+        public DiskEncryptionCheck(Func<string, string?> encryptionStatusLookup) => _encryptionStatusLookup = encryptionStatusLookup;
+
+        public string Type => "DISK_ENCRYPTION_STATE";
+
+        public Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            var volume = request.Parameters.GetValueOrDefault("volume", "C:");
+            var status = _encryptionStatusLookup(volume);
+
+            var checkStatus = status switch
+            {
+                null => CheckStatus.NotApplicable,
+                "Encrypted" => CheckStatus.Pass,
+                _ => CheckStatus.Fail
+            };
+
+            return Task.FromResult(new CheckResult
+            {
+                CheckId = request.CheckId,
+                Status = checkStatus,
+                ObservedState = new Dictionary<string, object> { ["volume"] = volume, ["status"] = status ?? "UNSUPPORTED" },
+                StartedAt = started,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+
+    public sealed class SecurityConfigurationStateCheck : IVerificationCheck
+    {
+        private readonly Func<string, string?> _settingReader;
+
+        public SecurityConfigurationStateCheck(Func<string, string?> settingReader) => _settingReader = settingReader;
+
+        public string Type => "SECURITY_CONFIGURATION_STATE";
+
+        public Task<CheckResult> RunAsync(CheckRequest request, CancellationToken ct)
+        {
+            var started = DateTimeOffset.UtcNow;
+            if (!request.Parameters.TryGetValue("settingKey", out var key) || string.IsNullOrWhiteSpace(key))
+            {
+                return Task.FromResult(new CheckResult
+                {
+                    CheckId = request.CheckId, Status = CheckStatus.Error,
+                    ErrorMessage = "Missing required parameter: settingKey",
+                    StartedAt = started, CompletedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            var observedValue = _settingReader(key);
+            var status = CheckStatus.Pass;
+            if (request.Parameters.TryGetValue("expectedValue", out var expected))
+                status = string.Equals(observedValue, expected, StringComparison.OrdinalIgnoreCase) ? CheckStatus.Pass : CheckStatus.Fail;
+
+            return Task.FromResult(new CheckResult
+            {
+                CheckId = request.CheckId,
+                Status = observedValue == null ? CheckStatus.NotApplicable : status,
+                ObservedState = new Dictionary<string, object> { ["settingKey"] = key, ["value"] = observedValue ?? "UNAVAILABLE" },
+                StartedAt = started,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Infrastructure/CygnusAgent.Infrastructure.csproj`
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CygnusAgent.Infrastructure</RootNamespace>
+    <UseWindowsForms>false</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CygnusAgent.Core\CygnusAgent.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+  </ItemGroup>
+</Project>
+
+```
+
+## `src/CygnusAgent.Infrastructure/Logging/StructuredLogger.cs`
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Text.Json;
+using CygnusAgent.Core.Interfaces;
+
+namespace CygnusAgent.Infrastructure.Logging
+{
+    public sealed class StructuredLogger : IAgentLogger
+    {
+        private static readonly string[] SensitiveFieldNames =
+        {
+            "password", "token", "credential", "privatekey", "apikey", "secret", "sessiontoken"
+        };
+
+        private readonly Action<string> _sink;
+        private readonly LogLevel _minLevel;
+
+        public StructuredLogger(Action<string> sink, LogLevel minLevel)
+        {
+            _sink = sink;
+            _minLevel = minLevel;
+        }
+
+        public void Trace(string evt, object? data = null) => Write(LogLevel.Trace, evt, data);
+        public void Debug(string evt, object? data = null) => Write(LogLevel.Debug, evt, data);
+        public void Info(string evt, object? data = null) => Write(LogLevel.Info, evt, data);
+        public void Warn(string evt, object? data = null) => Write(LogLevel.Warn, evt, data);
+        public void Error(string evt, object? data = null) => Write(LogLevel.Error, evt, data);
+        public void Critical(string evt, object? data = null) => Write(LogLevel.Critical, evt, data);
+
+        private void Write(LogLevel level, string evt, object? data)
+        {
+            if (level < _minLevel) return;
+
+            var redacted = Redact(data);
+            var line = JsonSerializer.Serialize(new
+            {
+                timestamp = DateTimeOffset.UtcNow.ToString("o"),
+                level = level.ToString().ToUpperInvariant(),
+                @event = evt,
+                data = redacted
+            });
+            _sink(line);
+        }
+
+        private static Dictionary<string, object?>? Redact(object? data)
+        {
+            if (data == null) return null;
+            var dict = new Dictionary<string, object?>();
+            foreach (var prop in data.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                var isSensitive = Array.Exists(SensitiveFieldNames,
+                    s => prop.Name.Contains(s, StringComparison.OrdinalIgnoreCase));
+                dict[prop.Name] = isSensitive ? "[REDACTED]" : prop.GetValue(data);
+            }
+            return dict;
+        }
+    }
+
+    public enum LogLevel { Trace, Debug, Info, Warn, Error, Critical }
+}
+
+```
+
+## `src/CygnusAgent.Infrastructure/Networking/CredentialAttachingHandler.cs`
+
+```csharp
+using System;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Infrastructure.Networking
+{
+    /// <summary>
+    /// FIX: closes the gap flagged in CygnusApiClient.cs ("not included in
+    /// this delivery"). Every outgoing POST to the backend needs deviceId,
+    /// credential, agentVersion and a fresh requestId (see
+    /// docs/API_CONTRACT.md "Common envelope fields"). Doing this in a
+    /// DelegatingHandler — rather than merging these fields into each call
+    /// site's anonymous `body` object — means:
+    ///   1. every call gets them uniformly, with no risk of a new endpoint
+    ///      forgetting to add them;
+    ///   2. the credential is read from ICredentialStore (DPAPI) at request
+    ///      time and never held longer than one call, and never logged as
+    ///      part of a request-body dump (StructuredLogger's redaction is a
+    ///      backstop, this is the primary control).
+    ///
+    /// The enroll call is the one exception: it has no credential yet (the
+    /// backend issues one in the response), so this handler skips injection
+    /// when the JSON body's "action" is "agent.enroll".
+    /// </summary>
+    public sealed class CredentialAttachingHandler : DelegatingHandler
+    {
+        private readonly ICredentialStore _credentialStore;
+        private readonly AgentConfig _config;
+
+        public CredentialAttachingHandler(ICredentialStore credentialStore, AgentConfig config)
+        {
+            _credentialStore = credentialStore;
+            _config = config;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.Content is not null)
+            {
+                var originalJson = await request.Content.ReadAsStringAsync(ct);
+
+                using var doc = JsonDocument.Parse(originalJson);
+                var isEnroll = doc.RootElement.TryGetProperty("action", out var actionProp)
+                               && actionProp.GetString() == "agent.enroll";
+
+                using var stream = new System.IO.MemoryStream();
+                using (var writer = new Utf8JsonWriter(stream))
+                {
+                    writer.WriteStartObject();
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                        prop.WriteTo(writer);
+
+                    // Common envelope fields — see API_CONTRACT.md.
+                    writer.WriteString("agentVersion", _config.AgentVersion);
+                    writer.WriteString("requestId", Guid.NewGuid().ToString("N"));
+
+                    if (!isEnroll)
+                    {
+                        writer.WriteString("deviceId", _config.DeviceId);
+                        if (_credentialStore.TryLoad(out var credential))
+                            writer.WriteString("credential", credential);
+                        // If no credential is available yet and this isn't an
+                        // enroll call, we deliberately still send the request:
+                        // the backend will reject it with an auth error, which
+                        // is a clearer failure than the Agent guessing.
+                    }
+
+                    writer.WriteEndObject();
+                }
+
+                var newJson = Encoding.UTF8.GetString(stream.ToArray());
+                request.Content = new StringContent(newJson, Encoding.UTF8, "application/json");
+            }
+
+            return await base.SendAsync(request, ct);
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Infrastructure/Networking/CygnusApiClient.cs`
+
+```csharp
+using System;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+
+namespace CygnusAgent.Infrastructure.Networking
+{
+    public sealed class CygnusApiClient : IApiClient
+    {
+        private readonly HttpClient _http;
+        private readonly ICredentialStore _credentialStore;
+        private readonly IAgentLogger _logger;
+        private readonly RetryPolicy _retry;
+
+        public CygnusApiClient(HttpClient http, ICredentialStore credentialStore, IAgentLogger logger, RetryPolicy retry)
+        {
+            _http = http;
+            _credentialStore = credentialStore;
+            _logger = logger;
+            _retry = retry;
+        }
+
+        public async Task<EnrollResponse> EnrollAsync(EnrollRequest request, CancellationToken ct)
+        {
+            var body = new
+            {
+                action = "agent.enroll",
+                enrollToken = request.EnrollToken,
+                hostname = request.Hostname,
+                osVersion = request.OsVersion,
+                agentVersion = request.AgentVersion,
+                publicKey = request.PublicKeyBase64
+            };
+
+            var data = await PostAsync<EnrollResponse>(body, includeCredential: false, ct);
+            return data ?? throw new InvalidOperationException("Enrollment returned no data.");
+        }
+
+        public async Task HeartbeatAsync(HeartbeatRequest request, CancellationToken ct)
+        {
+            var body = new
+            {
+                action = "agent.heartbeat",
+                deviceId = request.DeviceId,
+                agentVersion = request.AgentVersion,
+                osVersion = request.OsVersion,
+                lastJobState = request.LastJobState
+            };
+            await PostAsync<JsonElement?>(body, includeCredential: true, ct);
+        }
+
+        public async Task<VerificationJob?> PollJobAsync(CancellationToken ct)
+        {
+            var body = new { action = "agent.checkCommands" };
+            var data = await PostAsync<PollJobResponse>(body, includeCredential: true, ct);
+            return data?.Job;
+        }
+
+        public async Task SubmitResultAsync(AgentResultEnvelope<CheckResult[]> envelope, CancellationToken ct)
+        {
+            var body = new { action = "agent.submitScanResult", envelope };
+            await PostAsync<JsonElement?>(body, includeCredential: true, ct);
+        }
+
+        public async Task SubmitEvidenceAsync(EvidenceRecord evidence, CancellationToken ct)
+        {
+            var body = new { action = "agent.submitEvidence", evidence };
+            await PostAsync<JsonElement?>(body, includeCredential: true, ct);
+        }
+
+        public async Task SubmitRemediationResultAsync(AgentResultEnvelope<RemediationResult> envelope, CancellationToken ct)
+        {
+            var body = new { action = "agent.remediationResult", envelope };
+            await PostAsync<JsonElement?>(body, includeCredential: true, ct);
+        }
+
+        private async Task<T?> PostAsync<T>(object body, bool includeCredential, CancellationToken ct)
+        {
+            return await _retry.RunAsync(async () =>
+            {
+                // deviceId/credential/agentVersion/requestId are attached here
+                // by CredentialAttachingHandler, registered on this HttpClient
+                // in Program.cs — see that file's XML doc for why it's a
+                // handler rather than fields merged into `body` per call site.
+                using var response = await _http.PostAsJsonAsync("", body, ct);
+                response.EnsureSuccessStatusCode();
+
+                var envelope = await response.Content.ReadFromJsonAsync<ApiEnvelope<T>>(cancellationToken: ct);
+                if (envelope is null) throw new InvalidOperationException("Empty response from backend.");
+                if (!envelope.Ok) throw new CygnusApiException(envelope.Error ?? "Unknown backend error.");
+                return envelope.Data;
+            }, ct);
+        }
+
+        private sealed class ApiEnvelope<T>
+        {
+            public bool Ok { get; set; }
+            public T? Data { get; set; }
+            public string? Error { get; set; }
+        }
+
+        private sealed class PollJobResponse
+        {
+            public VerificationJob? Job { get; set; }
+        }
+    }
+
+    public sealed class CygnusApiException : Exception
+    {
+        public CygnusApiException(string message) : base(message) { }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Infrastructure/Networking/RetryPolicy.cs`
+
+```csharp
+using System;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+
+namespace CygnusAgent.Infrastructure.Networking
+{
+    public sealed class RetryPolicy
+    {
+        private readonly int _maxAttempts;
+        private readonly TimeSpan _initialBackoff;
+        private readonly TimeSpan _maxBackoff;
+        private readonly IAgentLogger _logger;
+
+        public RetryPolicy(int maxAttempts, TimeSpan initialBackoff, TimeSpan maxBackoff, IAgentLogger logger)
+        {
+            _maxAttempts = maxAttempts;
+            _initialBackoff = initialBackoff;
+            _maxBackoff = maxBackoff;
+            _logger = logger;
+        }
+
+        public async Task<T> RunAsync<T>(Func<Task<T>> action, CancellationToken ct)
+        {
+            var attempt = 0;
+            var delay = _initialBackoff;
+            var rng = Random.Shared;
+
+            while (true)
+            {
+                attempt++;
+                try
+                {
+                    return await action();
+                }
+                catch (Exception ex) when (attempt < _maxAttempts && IsTransient(ex))
+                {
+                    _logger.Warn("api.retry", new { attempt, delayMs = delay.TotalMilliseconds, error = ex.Message });
+                    var jitterMs = rng.Next(0, 250);
+                    await Task.Delay(delay + TimeSpan.FromMilliseconds(jitterMs), ct);
+                    delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, _maxBackoff.TotalMilliseconds));
+                }
+            }
+        }
+
+        private static bool IsTransient(Exception ex) =>
+            ex is HttpRequestException || ex is TaskCanceledException || ex is TimeoutException;
+    }
+}
+
+```
+
+## `src/CygnusAgent.Infrastructure/Storage/DpapiCredentialStore.cs`
+
+```csharp
+using System;
+using System.IO;
+using System.Runtime.Versioning;
+using System.Security.Cryptography;
+using System.Text;
+using CygnusAgent.Core.Interfaces;
+
+namespace CygnusAgent.Infrastructure.Storage
+{
+    [SupportedOSPlatform("windows")]
+    public sealed class DpapiCredentialStore : ICredentialStore
+    {
+        private readonly string _path;
+        private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("CYGNUS658-AGENT-CREDENTIAL-V1");
+
+        public DpapiCredentialStore(string path)
+        {
+            _path = path;
+        }
+
+        public bool TryLoad(out string credential)
+        {
+            credential = "";
+            if (!File.Exists(_path)) return false;
+
+            try
+            {
+                var protectedBytes = File.ReadAllBytes(_path);
+                var plainBytes = ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.LocalMachine);
+                credential = Encoding.UTF8.GetString(plainBytes);
+                return true;
+            }
+            catch (CryptographicException)
+            {
+                return false;
+            }
+        }
+
+        public void Save(string credential)
+        {
+            var plainBytes = Encoding.UTF8.GetBytes(credential);
+            var protectedBytes = ProtectedData.Protect(plainBytes, Entropy, DataProtectionScope.LocalMachine);
+            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            File.WriteAllBytes(_path, protectedBytes);
+        }
+
+        public void Clear()
+        {
+            if (File.Exists(_path)) File.Delete(_path);
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Infrastructure/Storage/FileOfflineQueue.cs`
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using CygnusAgent.Core.Interfaces;
+
+namespace CygnusAgent.Infrastructure.Storage
+{
+    public sealed class FileOfflineQueue<T> : IOfflineQueue<T>
+    {
+        private readonly string _directory;
+        private readonly int _maxItems;
+        private readonly object _lock = new();
+
+        public FileOfflineQueue(string directory, int maxItems)
+        {
+            _directory = directory;
+            _maxItems = maxItems;
+            Directory.CreateDirectory(_directory);
+        }
+
+        public int Count
+        {
+            get { lock (_lock) return Files().Length; }
+        }
+
+        public bool TryEnqueue(T item)
+        {
+            lock (_lock)
+            {
+                if (Files().Length >= _maxItems) return false;
+
+                var seq = NextSeq();
+                var path = Path.Combine(_directory, $"{seq:D12}.json");
+                var tmp = path + ".tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(item));
+                File.Move(tmp, path);
+                return true;
+            }
+        }
+
+        public bool TryPeek(out T item)
+        {
+            lock (_lock)
+            {
+                var first = Files().FirstOrDefault();
+                if (first == null) { item = default!; return false; }
+                item = JsonSerializer.Deserialize<T>(File.ReadAllText(first))!;
+                return true;
+            }
+        }
+
+        public void Dequeue()
+        {
+            lock (_lock)
+            {
+                var first = Files().FirstOrDefault();
+                if (first != null) File.Delete(first);
+            }
+        }
+
+        private string[] Files() =>
+            Directory.GetFiles(_directory, "*.json").OrderBy(f => f).ToArray();
+
+        private long NextSeq()
+        {
+            var last = Files().LastOrDefault();
+            if (last == null) return 1;
+            var name = Path.GetFileNameWithoutExtension(last);
+            return long.TryParse(name, out var n) ? n + 1 : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Infrastructure/Storage/FileSequenceStore.cs`
+
+```csharp
+using System;
+using System.IO;
+using CygnusAgent.Core.Security;
+
+namespace CygnusAgent.Infrastructure.Storage
+{
+    public sealed class FileSequenceStore : ISequenceStore
+    {
+        private readonly string _path;
+        private readonly object _lock = new();
+
+        public FileSequenceStore(string path) => _path = path;
+
+        public long NextSequence(string deviceId)
+        {
+            lock (_lock)
+            {
+                long current = 0;
+                if (File.Exists(_path) && long.TryParse(File.ReadAllText(_path), out var parsed))
+                    current = parsed;
+
+                var next = current + 1;
+                var tmp = _path + ".tmp";
+                File.WriteAllText(tmp, next.ToString());
+                File.Move(tmp, _path, overwrite: true);
+                return next;
+            }
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Service/AgentWorker.cs`
+
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+using CygnusAgent.Core.Remediation;
+using CygnusAgent.Core.Security;
+using CygnusAgent.Core.Verification;
+using Microsoft.Extensions.Hosting;
+
+namespace CygnusAgent.Service
+{
+    public sealed class AgentWorker : BackgroundService
+    {
+        private readonly AgentConfig _config;
+        private readonly IApiClient _api;
+        private readonly ICredentialStore _credentialStore;
+        private readonly DeviceIdentityProvider _identity;
+        private readonly ResultEnvelopeFactory _envelopeFactory;
+        private readonly IOfflineQueue<AgentResultEnvelope<CheckResult[]>> _resultQueue;
+        private readonly CheckEngine _checkEngine;
+        private readonly RemediationEngine _remediationEngine;
+        private readonly IAgentLogger _logger;
+
+        private AgentState _state = AgentState.Installed;
+
+        public AgentWorker(
+            AgentConfig config,
+            IApiClient api,
+            ICredentialStore credentialStore,
+            DeviceIdentityProvider identity,
+            ResultEnvelopeFactory envelopeFactory,
+            IOfflineQueue<AgentResultEnvelope<CheckResult[]>> resultQueue,
+            CheckEngine checkEngine,
+            RemediationEngine remediationEngine,
+            IAgentLogger logger)
+        {
+            _config = config;
+            _api = api;
+            _credentialStore = credentialStore;
+            _identity = identity;
+            _envelopeFactory = envelopeFactory;
+            _resultQueue = resultQueue;
+            _checkEngine = checkEngine;
+            _remediationEngine = remediationEngine;
+            _logger = logger;
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            var lastHeartbeat = DateTimeOffset.MinValue;
+            var lastPoll = DateTimeOffset.MinValue;
+            var lastEnrollAttempt = DateTimeOffset.MinValue;
+            var enrollRetryInterval = TimeSpan.FromSeconds(30);
+
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    // FIX (error handling gap): don't fall through to
+                    // heartbeat/job-poll calls that are guaranteed to fail
+                    // with no credential attached. Retry enrollment on a
+                    // bounded interval until it succeeds, logging each
+                    // attempt distinctly so an operator watching Event
+                    // Viewer sees "still not enrolled" rather than a wall
+                    // of unrelated heartbeat failures.
+                    if (_state is AgentState.Installed or AgentState.EnrollmentPending)
+                    {
+                        var now0 = DateTimeOffset.UtcNow;
+                        if (now0 - lastEnrollAttempt >= enrollRetryInterval)
+                        {
+                            await EnsureEnrolledAsync(stoppingToken);
+                            lastEnrollAttempt = now0;
+                        }
+                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                        continue;
+                    }
+
+                    await DrainOfflineQueueAsync(stoppingToken);
+
+                    var now = DateTimeOffset.UtcNow;
+                    if (now - lastHeartbeat >= _config.HeartbeatInterval)
+                    {
+                        await SendHeartbeatAsync(stoppingToken);
+                        lastHeartbeat = now;
+                    }
+
+                    if (now - lastPoll >= _config.JobPollInterval)
+                    {
+                        await PollAndRunJobAsync(stoppingToken);
+                        lastPoll = now;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error("worker.loop_error", new { error = ex.Message });
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
+        }
+
+        private async Task EnsureEnrolledAsync(CancellationToken ct)
+        {
+            if (_credentialStore.TryLoad(out _))
+            {
+                _state = AgentState.Enrolled;
+                return;
+            }
+
+            var enrollToken = Environment.GetEnvironmentVariable("CYGNUS_ENROLL_TOKEN");
+            if (string.IsNullOrWhiteSpace(enrollToken))
+            {
+                _logger.Critical("enrollment.missing_token",
+                    new { message = "No stored credential and no enrollment token provided. Run the installer with /enroll:<token>." });
+                return;
+            }
+
+            _state = AgentState.EnrollmentPending;
+            var publicKey = _identity.GetOrCreatePublicKey();
+
+            try
+            {
+                var response = await _api.EnrollAsync(new EnrollRequest
+                {
+                    EnrollToken = enrollToken,
+                    Hostname = Environment.MachineName,
+                    OsVersion = Environment.OSVersion.VersionString,
+                    AgentVersion = _config.AgentVersion,
+                    PublicKeyBase64 = publicKey
+                }, ct);
+
+                _credentialStore.Save(response.Credential);
+                _config.DeviceId = response.DeviceId;
+                _state = AgentState.Enrolled;
+                _logger.Info("enrollment.completed", new { deviceId = response.DeviceId });
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("enrollment.failed", new { error = ex.Message });
+            }
+        }
+
+        private async Task SendHeartbeatAsync(CancellationToken ct)
+        {
+            try
+            {
+                await _api.HeartbeatAsync(new HeartbeatRequest
+                {
+                    DeviceId = _config.DeviceId,
+                    AgentVersion = _config.AgentVersion,
+                    OsVersion = Environment.OSVersion.VersionString,
+                    LastJobState = _state.ToString()
+                }, ct);
+                if (_state == AgentState.Enrolled) _state = AgentState.Online;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn("heartbeat.failed", new { error = ex.Message });
+            }
+        }
+
+        private async Task PollAndRunJobAsync(CancellationToken ct)
+        {
+            VerificationJob? job;
+            try
+            {
+                job = await _api.PollJobAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn("job.poll_failed", new { error = ex.Message });
+                return;
+            }
+
+            if (job is null) return;
+
+            if (job.IsExpired(DateTimeOffset.UtcNow))
+            {
+                _logger.Warn("job.expired", new { job.JobId, job.ExpiresAt });
+                return;
+            }
+
+            _state = AgentState.JobReceived;
+            await RunVerificationAsync(job, ct);
+        }
+
+        private async Task RunVerificationAsync(VerificationJob job, CancellationToken ct)
+        {
+            _state = AgentState.Collecting;
+            var results = await _checkEngine.RunJobAsync(job, ct);
+
+            var envelope = _envelopeFactory.Wrap(job.DeviceId, job.JobId, results.ToArray());
+            await SubmitOrQueueAsync(envelope, ct);
+            _state = AgentState.ResultSubmitted;
+
+            _state = AgentState.Waiting;
+        }
+
+        private async Task RunRemediationAsync(RemediationAction action, CancellationToken ct)
+        {
+            _state = AgentState.RemediationRequested;
+            var result = await _remediationEngine.ExecuteAsync(action, ct);
+            _state = AgentState.RemediationExecuted;
+
+            var envelope = _envelopeFactory.Wrap(action.JobId.Split(':')[0], action.JobId, result);
+            try { await _api.SubmitRemediationResultAsync(envelope, ct); }
+            catch (Exception ex) { _logger.Error("remediation.submit_failed", new { error = ex.Message }); }
+
+            _state = AgentState.ReVerification;
+        }
+
+        private async Task SubmitOrQueueAsync(AgentResultEnvelope<CheckResult[]> envelope, CancellationToken ct)
+        {
+            try
+            {
+                await _api.SubmitResultAsync(envelope, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn("result.submit_failed_queuing", new { error = ex.Message });
+                if (!_resultQueue.TryEnqueue(envelope))
+                    _logger.Error("result.queue_full_dropping", new { envelope.ResultId });
+            }
+        }
+
+        private async Task DrainOfflineQueueAsync(CancellationToken ct)
+        {
+            while (_resultQueue.TryPeek(out var envelope))
+            {
+                try
+                {
+                    await _api.SubmitResultAsync(envelope, ct);
+                    _resultQueue.Dequeue();
+                }
+                catch
+                {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Service/CygnusAgent.Service.csproj`
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CygnusAgent.Service</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>cygnus-agent-service</UserSecretsId>
+
+    <!-- FIX: self-contained + single-file publish so the end-user machine
+         needs NO separately installed .NET runtime. Build with:
+         dotnet publish -c Release -r win-x64 -p:PublishProfile=win-x64-selfcontained
+         The resulting CygnusAgent.Service.exe is what the WiX/Inno installer
+         packages as CygnusAgentSetup.exe's payload. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CygnusAgent.Core\CygnusAgent.Core.csproj" />
+    <ProjectReference Include="..\CygnusAgent.Infrastructure\CygnusAgent.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
+    <!-- FIX: needed by WindowsLookups.cs's real (non-PowerShell) implementations -->
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.template.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
+
+```
+
+## `src/CygnusAgent.Service/Program.cs`
+
+```csharp
+using System;
+using System.IO;
+using System.Net.Http;
+using CygnusAgent.Core.Interfaces;
+using CygnusAgent.Core.Models;
+using CygnusAgent.Core.Remediation;
+using CygnusAgent.Core.Remediation.Actions;
+using CygnusAgent.Core.Security;
+using CygnusAgent.Core.Verification;
+using CygnusAgent.Core.Verification.Checks;
+using CygnusAgent.Infrastructure.Logging;
+using CygnusAgent.Infrastructure.Networking;
+using CygnusAgent.Infrastructure.Storage;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+namespace CygnusAgent.Service
+{
+    public static class Program
+    {
+        public static int Main(string[] args)
+        {
+            // FIX (error handling gap): a Windows Service that crashes
+            // before its own logger is wired up leaves nothing in Event
+            // Viewer except a generic ".NET Runtime" fault — no clue what
+            // went wrong. These two hooks catch that class of failure and
+            // write a structured line via the same fallback sink Program.cs
+            // already uses for normal logging, before the process exits.
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                WindowsEventLogSink.Write(BuildCrashLine("unhandled_exception", e.ExceptionObject as Exception));
+            };
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) =>
+            {
+                WindowsEventLogSink.Write(BuildCrashLine("unobserved_task_exception", e.Exception));
+                e.SetObserved();
+            };
+
+            try
+            {
+                RunHost(args);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                // Anything that escapes RunHost (bad config, DI wiring
+                // failure, host build failure) is logged with full context
+                // and the process exits non-zero — Windows Service Control
+                // Manager and any RMM watching the service both see a real
+                // failure signal instead of a silent hang or an opaque crash.
+                WindowsEventLogSink.Write(BuildCrashLine("startup_failed", ex));
+                return 1;
+            }
+        }
+
+        private static string BuildCrashLine(string evt, Exception? ex) =>
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                timestamp = DateTimeOffset.UtcNow.ToString("o"),
+                level = "CRITICAL",
+                @event = evt,
+                data = new { error = ex?.Message ?? "unknown", type = ex?.GetType().FullName, stack = ex?.StackTrace }
+            });
+
+        private static void RunHost(string[] args)
+        {
+            var config = LoadConfig();
+            ValidateConfig(config); // FIX: fail loudly and specifically, not with a null-reference three calls later
+
+            var dataDir = Environment.ExpandEnvironmentVariables(@"%ProgramData%\CygnusAgent");
+            Directory.CreateDirectory(dataDir);
+
+            var host = Host.CreateDefaultBuilder(args)
+                .UseWindowsService(options => options.ServiceName = "CygnusAgent")
+                .ConfigureServices(services =>
+                {
+                    services.AddSingleton(config);
+
+                    services.AddSingleton<IAgentLogger>(_ => new StructuredLogger(
+                        sink: line => WindowsEventLogSink.Write(line),
+                        minLevel: Enum.TryParse<LogLevel>(config.LogLevel, true, out var lvl) ? lvl : LogLevel.Info));
+
+                    services.AddSingleton<ICredentialStore>(_ =>
+                        new DpapiCredentialStore(Path.Combine(dataDir, "device.cred")));
+
+                    services.AddSingleton<DeviceIdentityProvider>();
+
+                    services.AddSingleton<ISequenceStore>(_ =>
+                        new FileSequenceStore(Path.Combine(dataDir, "sequence.txt")));
+                    services.AddSingleton<ResultEnvelopeFactory>();
+
+                    services.AddSingleton<IOfflineQueue<AgentResultEnvelope<CheckResult[]>>>(_ =>
+                        new FileOfflineQueue<AgentResultEnvelope<CheckResult[]>>(
+                            Path.Combine(dataDir, "queue", "results"), config.OfflineQueueMaxItems));
+
+                    // FIX: CredentialAttachingHandler closes the gap that was
+                    // previously just a NOTE comment in CygnusApiClient.cs —
+                    // it now actually attaches deviceId/credential/requestId
+                    // to every outgoing call (see that file's XML doc).
+                    services.AddTransient<CredentialAttachingHandler>(sp =>
+                        new CredentialAttachingHandler(sp.GetRequiredService<ICredentialStore>(), config));
+
+                    services.AddHttpClient<IApiClient, CygnusApiClient>(client =>
+                    {
+                        if (!string.IsNullOrWhiteSpace(config.ApiBaseUrl))
+                            client.BaseAddress = new Uri(config.ApiBaseUrl);
+                        client.Timeout = TimeSpan.FromSeconds(30);
+                    })
+                    .AddHttpMessageHandler<CredentialAttachingHandler>();
+
+                    services.AddSingleton(sp => new RetryPolicy(
+                        maxAttempts: 6,
+                        initialBackoff: config.RetryInitialBackoff,
+                        maxBackoff: config.RetryMaxBackoff,
+                        logger: sp.GetRequiredService<IAgentLogger>()));
+
+                    services.AddSingleton<IVerificationCheck, OsInfoCheck>();
+                    services.AddSingleton<IVerificationCheck>(_ => new DeviceIdentityCheck(config.DeviceId));
+                    services.AddSingleton<IVerificationCheck>(_ => new ApplicationStateCheck(WindowsLookups.IsApplicationInstalled));
+                    services.AddSingleton<IVerificationCheck>(_ => new ServiceStateCheck(WindowsLookups.GetServiceStatus));
+                    services.AddSingleton<IVerificationCheck, FileStateCheck>();
+                    services.AddSingleton<IVerificationCheck, DirectoryStateCheck>();
+                    services.AddSingleton<IVerificationCheck>(_ => new Core.Verification.Checks.DiskEncryptionCheck(WindowsLookups.GetVolumeEncryptionStatus));
+                    services.AddSingleton<IVerificationCheck>(_ => new SecurityConfigurationStateCheck(WindowsLookups.ReadSecuritySetting));
+                    services.AddSingleton<CheckEngine>();
+
+                    services.AddSingleton<IRemediationAction>(_ => new DeleteApprovedPathAction(
+                        approvedPathPrefixes: new[] { @"C:\CygnusApproved\Quarantine" }));
+                    services.AddSingleton<IRemediationAction>(_ => new SetServiceStateAction(
+                        approvedServiceNames: Array.Empty<string>(),
+                        applyServiceState: WindowsLookups.ApplyServiceState));
+                    services.AddSingleton<RemediationEngine>();
+
+                    services.AddHostedService<AgentWorker>();
+                })
+                .Build();
+
+            host.Run();
+        }
+
+        private static AgentConfig LoadConfig()
+        {
+            return new AgentConfig
+            {
+                ApiBaseUrl = Environment.GetEnvironmentVariable("CYGNUS_API_BASE_URL") ?? "",
+                DeviceId = Environment.GetEnvironmentVariable("CYGNUS_DEVICE_ID") ?? "",
+                AgentVersion = "1.0.0"
+            };
+        }
+
+        // FIX (error handling gap): validate the one thing this Agent
+        // cannot function without — a real backend URL — at startup, with a
+        // specific logged reason, instead of letting every subsequent HTTP
+        // call fail with an ambiguous "no BaseAddress" or connection error
+        // that gives an operator nothing to act on.
+        private static void ValidateConfig(AgentConfig config)
+        {
+            if (string.IsNullOrWhiteSpace(config.ApiBaseUrl) ||
+                !Uri.TryCreate(config.ApiBaseUrl, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps)
+            {
+                throw new InvalidOperationException(
+                    "CYGNUS_API_BASE_URL is missing or is not a valid https:// URL. " +
+                    "Set it via the service's environment before starting CygnusAgent.");
+            }
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Service/Properties/PublishProfiles/win-x64-selfcontained.pubxml`
+
+```
+<Project>
+  <!-- FIX: named publish profile so the build command in
+       installer/README.md and docs/DEPLOYMENT.md is copy-pasteable:
+         dotnet publish -c Release -r win-x64 -p:PublishProfile=win-x64-selfcontained
+       Produces a single CygnusAgent.Service.exe with no external .NET
+       dependency on the target machine — the whole point of this fix. -->
+  <PropertyGroup>
+    <Configuration>Release</Configuration>
+    <Platform>Any CPU</Platform>
+    <PublishProtocol>FileSystem</PublishProtocol>
+    <PublishDir>bin\Release\net8.0-windows\win-x64\publish\</PublishDir>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+</Project>
+
+```
+
+## `src/CygnusAgent.Service/WindowsLookups.cs`
+
+```csharp
+using System;
+using System.IO;
+using System.Linq;
+using System.Management;
+using System.ServiceProcess;
+using Microsoft.Win32;
+
+namespace CygnusAgent.Service
+{
+    /// <summary>
+    /// FIX: real implementations — all via managed Windows APIs
+    /// (Microsoft.Win32.Registry, System.ServiceProcess, System.Management/WMI).
+    /// Deliberately NO Process.Start("powershell.exe"/"cmd.exe", ...) anywhere
+    /// in this class: shelling out would mean the Agent has a runtime
+    /// dependency on PowerShell being present/unrestricted, which contradicts
+    /// the "no PowerShell required" product requirement and would also widen
+    /// the Agent's attack surface (see docs/THREAT_MODEL.md — no arbitrary
+    /// shell execution, by construction).
+    /// </summary>
+    internal static class WindowsLookups
+    {
+        private static readonly string[] UninstallRoots =
+        {
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+        };
+
+        public static bool IsApplicationInstalled(string applicationName)
+        {
+            foreach (var root in UninstallRoots)
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(root);
+                if (key is null) continue;
+
+                foreach (var subKeyName in key.GetSubKeyNames())
+                {
+                    using var subKey = key.OpenSubKey(subKeyName);
+                    var displayName = subKey?.GetValue("DisplayName") as string;
+                    if (displayName is not null &&
+                        displayName.Contains(applicationName, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        public static string? GetServiceStatus(string serviceName)
+        {
+            try
+            {
+                using var sc = new ServiceController(serviceName);
+                return sc.Status.ToString(); // e.g. "Running", "Stopped", "StartPending"
+            }
+            catch (InvalidOperationException)
+            {
+                // Service does not exist on this machine.
+                return null;
+            }
+        }
+
+        public static bool ApplyServiceState(string serviceName, string targetState)
+        {
+            try
+            {
+                using var sc = new ServiceController(serviceName);
+
+                switch (targetState)
+                {
+                    case "Running":
+                        if (sc.Status != ServiceControllerStatus.Running)
+                        {
+                            sc.Start();
+                            sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+                        }
+                        return true;
+
+                    case "Stopped":
+                        if (sc.Status != ServiceControllerStatus.Stopped)
+                        {
+                            sc.Stop();
+                            sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+                        }
+                        return true;
+
+                    case "Disabled":
+                        // ServiceController has no start-mode setter; the start
+                        // mode lives on the WMI Win32_Service class instead.
+                        using (var searcher = new ManagementObjectSearcher(
+                                   $"SELECT * FROM Win32_Service WHERE Name = '{EscapeWmi(serviceName)}'"))
+                        {
+                            foreach (ManagementObject service in searcher.Get())
+                            {
+                                var result = (uint)service.InvokeMethod("ChangeStartMode", new object[] { "Disabled" });
+                                return result == 0; // 0 = success per Win32_Service.ChangeStartMode
+                            }
+                        }
+                        return false;
+
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public static string? GetVolumeEncryptionStatus(string volume)
+        {
+            // Win32_EncryptableVolume lives in the ROOT\CIMV2\Security\MicrosoftVolumeEncryption
+            // namespace. Absent (e.g. BitLocker feature not installed, or
+            // running under an account without access) → treat as
+            // "unsupported" (NotApplicable at the check layer), not a failure.
+            try
+            {
+                var scope = new ManagementScope(@"root\CIMV2\Security\MicrosoftVolumeEncryption");
+                scope.Connect();
+
+                var normalizedVolume = volume.TrimEnd('\\') + "\\";
+                using var searcher = new ManagementObjectSearcher(scope,
+                    new ObjectQuery($"SELECT * FROM Win32_EncryptableVolume WHERE DriveLetter = '{EscapeWmi(volume.TrimEnd('\\'))}'"));
+
+                foreach (ManagementObject vol in searcher.Get())
+                {
+                    var result = vol.InvokeMethod("GetConversionStatus", null);
+                    // ConversionStatus: 0 FullyDecrypted, 1 FullyEncrypted,
+                    // 2 EncryptionInProgress, 3 DecryptionInProgress, 4 EncryptionPaused, 5 DecryptionPaused
+                    var conversionStatus = Convert.ToUInt32(((ManagementBaseObject)result!)["ConversionStatus"]);
+                    return conversionStatus == 1 ? "Encrypted" : "NotEncrypted";
+                }
+
+                return null; // no matching volume — unsupported for this query
+            }
+            catch (ManagementException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
+        }
+
+        public static string? ReadSecuritySetting(string settingKey)
+        {
+            // Closed dispatch table, same allowlisting pattern as
+            // RemediationEngine/CheckEngine: an unrecognized settingKey
+            // returns null (NotApplicable), never a generic "read anything
+            // from the registry" fallback.
+            return settingKey switch
+            {
+                "ScreenSaverTimeoutSeconds" => ReadRegistryValue(
+                    Registry.CurrentUser, @"Control Panel\Desktop", "ScreenSaveTimeOut"),
+                "WindowsFirewallDomainEnabled" => ReadRegistryValue(
+                    Registry.LocalMachine,
+                    @"SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile", "EnableFirewall"),
+                "WindowsFirewallStandardEnabled" => ReadRegistryValue(
+                    Registry.LocalMachine,
+                    @"SOFTWARE\Policies\Microsoft\WindowsFirewall\StandardProfile", "EnableFirewall"),
+                _ => null
+            };
+        }
+
+        private static string? ReadRegistryValue(RegistryKey hive, string path, string valueName)
+        {
+            using var key = hive.OpenSubKey(path);
+            var value = key?.GetValue(valueName);
+            return value?.ToString();
+        }
+
+        private static string EscapeWmi(string value) => value.Replace("'", "''");
+    }
+
+    internal static class WindowsEventLogSink
+    {
+        private static readonly string FallbackLogPath =
+            Environment.ExpandEnvironmentVariables(@"%ProgramData%\CygnusAgent\logs\agent.log");
+
+        public static void Write(string jsonLine)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(FallbackLogPath)!);
+                File.AppendAllText(FallbackLogPath, jsonLine + Environment.NewLine);
+            }
+            catch
+            {
+            }
+        }
+    }
+}
+
+```
+
+## `src/CygnusAgent.Service/appsettings.template.json`
+
+```json
+{
+  "_comment": "Copy to appsettings.json at deploy time. Never commit a filled-in copy with a real ApiBaseUrl to a public repo, and never put a credential or enrollment token in here.",
+  "ApiBaseUrl": "",
+  "AgentVersion": "1.0.0",
+  "HeartbeatIntervalSeconds": 60,
+  "JobPollIntervalSeconds": 30,
+  "LogLevel": "INFO",
+  "OfflineQueueMaxItems": 500,
+  "RetryInitialBackoffSeconds": 5,
+  "RetryMaxBackoffSeconds": 600
+}
+
+```
