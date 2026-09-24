@@ -1,21 +1,34 @@
-name: Build Cygnus Agent
+Name: Build Cygnus Agent
 
 on:
-  push:
-    branches: [main]
+push:
+branches: [main]
+workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - run: dotnet restore CygnusAgent.sln
-      - run: dotnet publish src/CygnusAgent.Service -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          make_latest: true
-          files: ./publish/CygnusAgent.Service.exe
+build:
+runs-on: windows-latest
+permissions:
+contents: write
+steps:
+- uses: actions/checkout@v4
+
+- uses: actions/setup-dotnet@v4
+with:
+dotnet-version: '8.0.x'
+
+- name: Restore Dependencies
+run: dotnet restore src/CygnusAgent.Service/CygnusAgent.Service.csproj
+
+- name: Publish Executable
+run: dotnet publish src/CygnusAgent.Service/CygnusAgent.Service.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish
+
+- name: Create Release Link
+uses: softprops/action-gh-release@v2
+with:
+tag_name: build-${{ github.run_number }}
+name: Cygnus Agent Build #${{ github.run_number }}
+make_latest: true
+files: ./publish/*
+env:
+GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
