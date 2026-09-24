@@ -13,7 +13,11 @@ using CygnusAgent.Infrastructure.Networking;
 using CygnusAgent.Infrastructure.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+// === START: LOGLEVEL ALIAS EDIT ===
+using LogLevel = CygnusAgent.Infrastructure.Logging.LogLevel;
+// === END: LOGLEVEL ALIAS EDIT ===
 
+namespace CygnusAgent.Service
 namespace CygnusAgent.Service
 {
     /// <summary>
