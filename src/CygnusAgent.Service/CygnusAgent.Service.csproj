@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CygnusAgent.Service</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>cygnus-agent-service</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CygnusAgent.Core\CygnusAgent.Core.csproj" />
+    <ProjectReference Include="..\CygnusAgent.Infrastructure\CygnusAgent.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.template.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
